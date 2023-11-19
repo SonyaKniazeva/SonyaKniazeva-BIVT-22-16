@@ -1,6 +1,12 @@
+#CCЫЛКА на папку с записью экрана работающего бота и с отредактированнной схемой FSM для данного бота
+#https://drive.google.com/drive/folders/1Xk8dcdQutLYQ4mY8AOcczkXCe_zTkPMM?usp=sharing
+
 from pydoc import html
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.enums import ParseMode
+from aiogram.types import ReplyKeyboardRemove
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+
 from config_reader import config
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.state import default_state, State, StatesGroup
@@ -15,20 +21,21 @@ import json
 
 bot = Bot(token = config.bot_token.get_secret_value(), parse_mode=ParseMode.HTML)
 dp = Dispatcher()
-# dp['today_is'] = datetime.date().day
 storage = MemoryStorage()
 
 class FSMtrips(StatesGroup):
     get_random_trip = State()
 
 @dp.message(Command('start'))
-async def cmd_start(message: types.Message):
+async def cmd_start(message: types.Message, state: FSMContext):
     itembtn1 = types.KeyboardButton(text = 'Место дня')
-    itembtn2 = types.KeyboardButton(text = 'Случайное путешествие')
-    itembtn3 = types.KeyboardButton(text ='Лайфхаки для путешественников')
-    kb = [[itembtn1], [itembtn2], [itembtn3]]
+    itembtn2 = types.KeyboardButton(text = 'Случайное путешествие по России')
+    itembtn3 = types.KeyboardButton(text ='Случайный лайфхак для путешественников')
+    itembtn4 = types.KeyboardButton(text = 'Отмена')
+    kb = [[itembtn1], [itembtn2], [itembtn3], [itembtn4]]
     keyboard = types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
     await message.answer('Что хотите получить?', reply_markup=keyboard)
+    await state.set_state(default_state)
 
 
 # bot.remove_webhook()
@@ -48,59 +55,88 @@ async def send_place(message: types.Message, state: FSMContext):
     tmp = data.get(str(number))
         # photo = 'https://storage.yandexcloud.net/picture-places/' + str(number) + '.jpg'
     await message.answer(tmp)
+    await state.set_state(default_state)
         # bot.send_photo(message.chat.id, photo)
-    # else:
-    #     msg = bot.send_message(message.chat.id, "Пожалуйста, введите число 1-31")
-    #     bot.register_next_step_handler(msg, send_place)
 
 
-@dp.message(F.text == "Случайное путешествие", StateFilter(default_state))
+@dp.message(F.text == "Случайное путешествие по России", StateFilter(default_state))
 async def choose_type_of_trips(message: types.Message, state: FSMContext):
-    kb = [[types.KeyboardButton(text = 'Готовый план')], [types.KeyboardButton(text = 'Идеи для вдохновения')]]
+    kb = [[types.KeyboardButton(text = 'Готовый план путешествия')], [types.KeyboardButton(text = 'Гайд по городу')], [types.KeyboardButton(text = 'Отмена')]]
     keyboard = types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
     await message.answer('Выберите формат', reply_markup=keyboard)
+    await state.set_state(FSMtrips.get_random_trip)
 
+@dp.message(F.text == "Готовый план путешествия", FSMtrips.get_random_trip)
 async def send_place(message: types.Message, state: FSMContext):
     number = random.randint(1, 10)
     data = get_info_from_json('planned_trips.json')
     tmp = data.get(str(number))
-        # photo = 'https://storage.yandexcloud.net/picture-places/' + str(number) + '.jpg'
-    await message.answer(tmp)
+    city, link = tmp.split(' = ')
+    builder = InlineKeyboardBuilder()
+    builder.row(types.InlineKeyboardButton(text=city, url=link))
+    await message.answer('Перейдите по ссылке ниже:', reply_markup=builder.as_markup())
+    await state.set_state(FSMtrips.get_random_trip)
+@dp.message(F.text == "Гайд по городу", FSMtrips.get_random_trip)
+async def send_place(message: types.Message, state: FSMContext):
+    number = random.randint(1, 18)
+    data = get_info_from_json('unplanned_trips.json')
+    tmp = data.get(str(number))
+    city, link = tmp.split(' = ')
+    builder = InlineKeyboardBuilder()
+    builder.row(types.InlineKeyboardButton(text=city, url=link))
+    await message.answer('Перейдите по ссылке ниже:', reply_markup=builder.as_markup())
+    await state.set_state(FSMtrips.get_random_trip)
 
-# def send_meme(message):
-#     photo = 'URL' + str(random.randint(1,5))+'.jpeg' # добавьте полученную выше ссылку бакета
-#     bot.send_photo(message.chat.id, photo, reply_markup=keyboard_continue)
+
+@dp.message(F.text == "Случайный лайфхак для путешественников", StateFilter(default_state))
+async def send_place(message: types.Message, state: FSMContext):
+    number = random.randint(1, 29)
+    data = get_info_from_json('lifehacks.json')
+    tmp = data.get(str(number))
+    name, link = tmp.split(' = ')
+    builder = InlineKeyboardBuilder()
+    builder.row(types.InlineKeyboardButton(text=name, url=link))
+    await message.answer('Перейдите по ссылке ниже:', reply_markup=builder.as_markup())
+    await state.set_state(default_state)
+# default_state - это то же самое, что и StateFilter(None)
+@dp.message(StateFilter(default_state), Command("cancel"))
+@dp.message(StateFilter(default_state), F.text.lower() == "отмена")
+async def cmd_cancel_no_state(message: types.Message, state: FSMContext):
+    # Стейт сбрасывать не нужно, удалим только данные
+    await state.set_data({})
+    await message.answer(
+        text="Нечего отменять, нажмите команду /start",
+        reply_markup=types.ReplyKeyboardRemove()
+    )
 
 
-# @bot.message_handler(regexp="Случайное путешествие")
-# def send_advice(message):
-#     number = random.randint(1, 10)
-#     ready_trip = get_info_from_bucket('planned_trips.json')
-#     tmp = ready_trip.get(str(number))
-#     bot.send_message(message.chat.id, tmp)
-#
-#
-# @bot.message_handler(regexp="Совет по путешествиям")
-# def send_advice(message):
-#     number = random.randint(1, 7)
-#     ready_advice = get_info_from_bucket('advice.json')
-#     adv = ready_advice.get(str(number))
-#     bot.send_message(message.chat.id, adv)
+@dp.message(Command('cancel'), FSMtrips.get_random_trip)
+@dp.message(F.text.lower() == "отмена")
+async def process_cancel_state(message: types.Message, state: FSMContext):
+    itembtn1 = types.KeyboardButton(text='Место дня')
+    itembtn2 = types.KeyboardButton(text='Случайное путешествие по России')
+    itembtn3 = types.KeyboardButton(text='Случайный лайфхак для путешественников')
+    itembtn4 = types.KeyboardButton(text='Отмена')
+    kb = [[itembtn1], [itembtn2], [itembtn3], [itembtn4]]
+    keyboard = types.ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
+    await message.answer(text='Нажмите на одну из кнопок', reply_markup=keyboard)
+    await state.set_state(default_state)
 
-# @bot.message_handler(content_types=["text"])
-# def handle_other_messages(message):
-#     bot.send_message(message.chat.id, "Я тебя не понимаю. Нажмите на одну из кнопок.")
-#
-# def handler(event, context):
-#     body = json.loads(event['body'])
-#     update = telebot.types.Update.de_json(body)
-#     bot.process_new_updates([update])
-#     return {
-#         'statusCode': 200,
-#         'body': json.dumps('Success')
-#     }
+@dp.message(Command('cancel'), ~StateFilter(default_state, FSMtrips.get_random_trip))
+@dp.message(F.text.lower() == "отмена")
+async def process_cancel_state(message: types.Message, state: FSMContext):
+    await message.answer(text='Возвращаемся в начало', reply_markup=types.ReplyKeyboardRemove())
+    await state.clear()
 
-#bot.polling(none_stop=True)
+@dp.message(StateFilter(default_state))
+async def send_echo(message: types.Message):
+    await message.answer('Извините, такой команды нет\nДля возвращения в начало нажмите /start')
+
+@dp.message(FSMtrips.get_random_trip)
+async def send_echo(message: types.Message):
+    await message.answer('Извините, такой команды нет\nДля продолжения нажмите одну из кнопок\nДля возвращения в начало нажмите /start\nДля отмены нажмите /cancel')
+
+
 async def main():
     await dp.start_polling(bot)
 
